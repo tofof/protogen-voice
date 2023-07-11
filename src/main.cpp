@@ -41,6 +41,7 @@ void loop() {
     Serial.print("count ");
     Serial.println(count);
     count = 0;
+    //vanilla analogread + analogwrite = 57847 Hz
   }
   // delay(1);
 }
