@@ -54,25 +54,25 @@ void loop() {
   readVolts = analogRead(AUDIO_INPUT) * (3.3 / 4095);
   analogWrite(DAC0, mapDac);
 
-  Serial.print("adc ");
-  Serial.print(adc);
-  Serial.print("  voltsIn ");
-  Serial.print(voltsIn, 4);
-  Serial.print("  mapDac ");
-  Serial.print(mapDac);
-  Serial.print("  readVolts ");
-  Serial.print(readVolts, 4);
-  Serial.print("  difference ");
-  Serial.println(voltsIn - readVolts, 4);
+  // Serial.print("adc ");
+  // Serial.print(adc);
+  // Serial.print("  voltsIn ");
+  // Serial.print(voltsIn, 4);
+  // Serial.print("  mapDac ");
+  // Serial.print(mapDac);
+  // Serial.print("  readVolts ");
+  // Serial.print(readVolts, 4);
+  // Serial.print("  difference ");
+  // Serial.println(voltsIn - readVolts, 4);
 
   count++;
   currentMillis = millis();
-  // if ((currentMillis - startMillis) % 1000 == 0 && count >1000) {
-  //   Serial.print("count ");
-  //   Serial.println(count);
-  //   count = 0;
-  // }
-  delay(1);
+  if ((currentMillis - startMillis) % 1000 == 0 && count >1000) {
+    Serial.print("count ");
+    Serial.println(count);
+    count = 0;
+  }
+  // delay(1);
 }
 
 // https://forum.arduino.cc/t/due-dac-update-rate-resolution/450943
