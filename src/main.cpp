@@ -1,14 +1,11 @@
 #include <Arduino.h>
-//#include "sinish.h"
-/****************************************************************************************************/
-/*  1 MHz ADC conversions of 1 analog input (A0) triggered by Timer Counter 0 channel 2 TIOA2       */
-/*  1 MHz DAC output on channel 1 (DAC1) triggered by Timer Counter 0 channel 2 TIOA2               */
-/****************************************************************************************************/
+#include <Yin.h>
 
 #define DUE_CLOCK_RATE 84000000
 #define TIMER_FREQUENCY 200000 // audio sampling (ADC conversion) speed; clock speed will be half this
 #define ADC_FILTER 64 // filter out deviations of less than this from a 0-4095 signal
 #define SIN_STEEP 3.0 // steepness (1.0 to ~32.0) of sin function used to increase SNR, see https://www.desmos.com/calculator/wdtfsassev
+#define log2(x) (log(x) * M_LOG2E) // Arduino doesn't have a log2 function :(
 
 unsigned short mapDac = 0, adc = 0;
 float voltsIn = 0.0, voltsDac = 0.0, readVolts = 0.0;
@@ -17,7 +14,10 @@ static uint16_t steepSinTable[4096];
 bool clipping = false;
 volatile byte speed = 128;
 
+Yin yInMethod;
+
 #define DEBUG 1
+
 
 void buildSteepSinTable();
 void adc_setup();
@@ -26,13 +26,19 @@ void tc_setup();
 void ADC_Handler();
 
 void setup() {
+  noInterrupts();
   Serial.begin(115200);
   buildSteepSinTable();
   adc_setup();
   dac_setup();
   tc_setup();
-  startMillis = millis();
+
+  // Prepare for frequency analysis
+  Yin_init(&yInMethod, 512, 0.05f);
+
   Serial.println("Setup complete.");
+  startMillis = millis();
+  interrupts();
 }
 
 void loop() {
@@ -42,15 +48,6 @@ void loop() {
   if (clipping) {
       Serial.println(" ***************** CLIPPING ***************** ");
       clipping = false;
-      #if DEBUG
-      Serial.print("count ");
-      Serial.print(count);
-      Serial.print("   adc0: ");
-      Serial.print(adc-2048);
-      Serial.print("   sin0: ");
-      Serial.print(steepSinTable[adc]-2048);
-      Serial.println("");
-      #endif
     }
   if ((currentMillis - startMillis) % 1000 == 0 && count >1000) {
     #if DEBUG
