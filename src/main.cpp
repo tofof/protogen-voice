@@ -6,12 +6,13 @@
 /****************************************************************************************************/
 
 #define DUE_CLOCK_RATE 84000000
-#define TIMER_FREQUENCY 100000
-#define ADC_FILTER 64 //filter out deviations of less than this from a 0-4095 signal
+#define TIMER_FREQUENCY 200000 // audio sampling (ADC conversion) speed; clock speed will be half this
+#define ADC_FILTER 64 // filter out deviations of less than this from a 0-4095 signal
+#define SIN_STEEP 3.0 // steepness (1.0 to ~32.0) of sin function used to increase SNR, see https://www.desmos.com/calculator/wdtfsassev
 
 unsigned short mapDac = 0, adc = 0;
 float voltsIn = 0.0, voltsDac = 0.0, readVolts = 0.0;
-unsigned long currentMillis = 0, startMillis = 0, count = 0;
+unsigned long currentMillis = 0, startMillis = 0, count = 0, conversions = 0;
 static uint16_t steepSinTable[4096];
 bool clipping = false;
 volatile byte speed = 128;
@@ -35,6 +36,7 @@ void setup() {
 }
 
 void loop() {
+  //while(!(ADC->ADC_ISR & ADC_ISR_EOC7)); // lock clock speed to half timer frequency
   count++;
   currentMillis = millis();
   if (clipping) {
@@ -52,15 +54,20 @@ void loop() {
     }
   if ((currentMillis - startMillis) % 1000 == 0 && count >1000) {
     #if DEBUG
+    Serial.print("Processing: ");
     Serial.print(count);
-    Serial.println(" Hz sampling speed");
+    Serial.print(" Hz");
+    Serial.print("     Sampling: ");
+    Serial.print(conversions);
+    Serial.print(" Hz");
     // Serial.print("   adc0: ");
     // Serial.print(adc-2048);
     // Serial.print("   sin0: ");
     // Serial.print(steepSinTable[adc]-2048);
-    // Serial.println("");
+    Serial.println("");
     #endif
     count = 0;
+    conversions = 0;
     //vanilla analogread + analogwrite = 57,847 Hz
     //  1 MHz timer interrupt = 285,235 Hz
     // 48 kHz timer interrupt = 322,209 Hz 
@@ -71,9 +78,9 @@ void loop() {
 
 // steeper sin equation https://www.desmos.com/calculator/wdtfsassev
 void buildSteepSinTable() {
-  float x;      // position in table between 0 and 1
-  float s;      // sinus value
-  float k=3.0;  // steepness between 0 and infinity (in practice keep k<32, as above approaches square wave; k>5250 is perfect square wave for 4096 points)
+  float x;            // position in table between 0 and 1
+  float s;            // sinus value
+  float k=SIN_STEEP;  // steepness between 0 and infinity (in practice keep k<32, as above approaches square wave; k>5250 is perfect square wave for 4096 points)
   for (int i=0; i<4096; i++) {
     x = i/4096.0;
     s = pow(0.5+sin(x*PI-PI/2)/2,pow(2*(1-x),k));
@@ -114,6 +121,8 @@ void ADC_Handler() {
   
   // Play from a different part
   DACC->DACC_CDR = data[outputPosition >> 7]; //short 65535 >> 7 = 511, so in-bounds on array
+
+  conversions++;
 }
 
 /*************  Configure dacc_setup function  *******************/
