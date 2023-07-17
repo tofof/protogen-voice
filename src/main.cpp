@@ -1,23 +1,24 @@
 #include <Arduino.h>
 #include <Yin.h>
+#include "audioData.h"
 
-#define DUE_CLOCK_RATE 84000000
-#define TIMER_FREQUENCY 200000 // audio sampling (ADC conversion) speed; clock speed will be half this
-#define ADC_FILTER 64 // filter out deviations of less than this from a 0-4095 signal
-#define SIN_STEEP 3.0 // steepness (1.0 to ~32.0) of sin function used to increase SNR, see https://www.desmos.com/calculator/wdtfsassev
-#define log2(x) (log(x) * M_LOG2E) // Arduino doesn't have a log2 function :(
+#define DUE_CLOCK_RATE 84000000             // due processor speed, 84 MHz
+#define TIMER_FREQUENCY YIN_SAMPLING_RATE   // audio sampling (ADC conversion) speed; clock speed will be half this
+#define ADC_FILTER 64                       // filter out deviations of less than this from a 0-4095 signal
+#define SIN_STEEP 3.5                       // steepness (1.0 to ~32.0) of sin function used to increase SNR, see https://www.desmos.com/calculator/wdtfsassev
+#define log2(x) (log(x) * M_LOG2E)          // Arduino doesn't have a log2 function :(
+
 
 unsigned short mapDac = 0, adc = 0;
 float voltsIn = 0.0, voltsDac = 0.0, readVolts = 0.0;
 unsigned long currentMillis = 0, startMillis = 0, count = 0, conversions = 0;
-static uint16_t steepSinTable[4096];
+unsigned short steepSinTable[4096];
+short data[BUFFER_SIZE], rawData[BUFFER_SIZE], rawI16[BUFFER_SIZE];
 bool clipping = false;
-volatile byte speed = 128;
-
+volatile byte speed = 128;      // repitching speed, 128=1:1 playback, 256 = faster (chipmunk), 96 = slower (serial killer)
 Yin yInMethod;
 
-#define DEBUG 1
-
+#define DEBUG 0
 
 void buildSteepSinTable();
 void adc_setup();
@@ -34,43 +35,76 @@ void setup() {
   tc_setup();
 
   // Prepare for frequency analysis
-  Yin_init(&yInMethod, 512, 0.05f);
+  Yin_init(&yInMethod, 0.42);
 
   Serial.println("Setup complete.");
   startMillis = millis();
+  
   interrupts();
 }
 
 void loop() {
-  //while(!(ADC->ADC_ISR & ADC_ISR_EOC7)); // lock clock speed to half timer frequency
+  while(!(ADC->ADC_ISR & ADC_ISR_EOC7)); // lock clock speed to half timer frequency
   count++;
   currentMillis = millis();
-  if (clipping) {
-      Serial.println(" ***************** CLIPPING ***************** ");
-      clipping = false;
-    }
-  if ((currentMillis - startMillis) % 1000 == 0 && count >1000) {
-    #if DEBUG
-    Serial.print("Processing: ");
-    Serial.print(count);
-    Serial.print(" Hz");
-    Serial.print("     Sampling: ");
-    Serial.print(conversions);
-    Serial.print(" Hz");
-    // Serial.print("   adc0: ");
-    // Serial.print(adc-2048);
-    // Serial.print("   sin0: ");
-    // Serial.print(steepSinTable[adc]-2048);
+  if (conversions >= BUFFER_SIZE) {
+    static float pitch;
+    #ifdef DEBUG
+    static unsigned int t;
+    t = millis();
+    #endif
+    pitch = Yin_getPitch(&yInMethod, rawData);
+    conversions = 0;
+    #ifdef DEBUG
+    Serial.print("Pitch: ");
+    Serial.print(pitch);
+    Serial.print("    Took ");
+    Serial.print(millis() - t);
+    Serial.print("ms");
     Serial.println("");
     #endif
-    count = 0;
-    conversions = 0;
-    //vanilla analogread + analogwrite = 57,847 Hz
-    //  1 MHz timer interrupt = 285,235 Hz
-    // 48 kHz timer interrupt = 322,209 Hz 
-    // 96 kHz timer interrupt = 315,365 Hz
-    //384 kHz timer interrupt = 302,344 Hz
   }
+  
+  // if (count >1000) {
+  //   Serial.print("    rawData[0]:");
+  //   Serial.print(rawData[0]);
+  //   Serial.print("    rawData[511]:");
+  //   Serial.print(rawData[511]);
+  //   Serial.print("    rawI16[0]:");
+  //   Serial.print(rawI16[0]);
+  //   Serial.print("    rawI16[511]:");
+  //   Serial.print(rawI16[511]);
+  //   Serial.println("");
+  //   count = 0;
+  // }
+
+
+  // if (clipping) {
+  //     Serial.println(" ***************** CLIPPING ***************** ");
+  //     clipping = false;
+  //   }
+  // if ((currentMillis - startMillis) % 1000 == 0 && count >1000) {
+  //   #if DEBUG
+  //   Serial.print("Processing: ");
+  //   Serial.print(count);
+  //   Serial.print(" Hz");
+  //   Serial.print("     Sampling: ");
+  //   Serial.print(conversions);
+  //   Serial.print(" Hz");
+  //   // Serial.print("   adc0: ");
+  //   // Serial.print(adc-2048);
+  //   // Serial.print("   sin0: ");
+  //   // Serial.print(steepSinTable[adc]-2048);
+  //   Serial.println("");
+  //   #endif
+  //   count = 0;
+  //   conversions = 0;
+  //   //vanilla analogread + analogwrite = 57,847 Hz
+  //   //  1 MHz timer interrupt = 285,235 Hz
+  //   // 48 kHz timer interrupt = 322,209 Hz 
+  //   // 96 kHz timer interrupt = 315,365 Hz
+  //   //384 kHz timer interrupt = 302,344 Hz
+  // }
 }
 
 // steeper sin equation https://www.desmos.com/calculator/wdtfsassev
@@ -104,22 +138,30 @@ void adc_setup() {
 }
 
 void ADC_Handler() {
-  /* Beware : Stay in ADC_Handler as little time as possible */
-  adc = ADC->ADC_CDR[7];                    // Reading ADC->ADC_CDR[i] clears EOCi bit
-  //if (abs(adc-2048) < ADC_FILTER) adc = 2048;
-  if (abs(steepSinTable[adc] - 2048) == 2048) clipping = true;
-
-  static unsigned short data[512];
-  static unsigned short inputPosition = 0;  
-  static unsigned short outputPosition = 0;
-  data[inputPosition] = steepSinTable[adc];   // Store current sample
-  inputPosition = (inputPosition+1) & 511;
-  outputPosition += speed; //speed 128 will be >> 7 so advances 1, ie 1:1 playback
+  // /* Beware : Stay in ADC_Handler as little time as possible */
+  // static unsigned short inputPosition = 0;  
+  // static unsigned short outputPosition = 0;
   
-  // Play from a different part
-  DACC->DACC_CDR = data[outputPosition >> 7]; //short 65535 >> 7 = 511, so in-bounds on array
+  // adc = ADC->ADC_CDR[7];                    // Reading ADC->ADC_CDR[i] clears EOCi bit
+  // // //if (abs(adc-2048) < ADC_FILTER) adc = 2048;
+  // if (abs(steepSinTable[adc] - 2048) == 2048) clipping = true;
 
-  conversions++;
+  // //adc = steepSinTable[adc];   // Store current sample
+  // data[inputPosition] = (adc - 2048) * 16; //12 bit to 16 bit conversion
+  // inputPosition = (inputPosition+1) & 511;
+  // outputPosition += speed; //speed 128 will be >> 7 so advances 1, ie 1:1 playback
+  
+  // // // Play from a different part
+  // // //DACC->DACC_CDR = data[outputPosition >> 7]; //short 65535 >> 7 = 511, so in-bounds on array
+
+  // conversions++;
+
+  adc = ADC->ADC_CDR[7];
+
+  if (conversions < BUFFER_SIZE) {
+    rawData[conversions] = steepSinTable[adc]-2048;
+    conversions++;
+  }
 }
 
 /*************  Configure dacc_setup function  *******************/
