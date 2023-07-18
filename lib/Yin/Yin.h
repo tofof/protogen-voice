@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 #define YIN_SAMPLING_RATE 48000
-#define BUFFER_SIZE 2048                      // audio buffer size
+#define YIN_BUFFER_SIZE 2048                      // audio buffer size
 #define HALF_BUFFER_SIZE 1024
 
 /**
