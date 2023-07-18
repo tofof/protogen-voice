@@ -3,8 +3,8 @@
 
 #define DUE_CLOCK_RATE 84000000             // due processor speed, 84 MHz
 #define TIMER_FREQUENCY YIN_SAMPLING_RATE   // audio sampling (ADC conversion) speed; clock speed will be half this
-#define PLAYBACK_BUFFER_SIZE 512          // must be power of 2
-#define PLAYBACK_SPEED 128                  // adjustment sensitivity, i.e. >100 for <=1% shifts
+#define PLAYBACK_BUFFER_SIZE 32768          // must be power of 2
+#define PLAYBACK_SPEED 131072                  // adjustment sensitivity, i.e. >100 for <=1% shifts
 #define ADC_FILTER 64                       // filter out deviations of less than this from a 0-4095 signal
 #define SIN_STEEP 3.0                       // steepness (1.0 to ~32.0) of sin function used to increase SNR, see https://www.desmos.com/calculator/wdtfsassev
 #define log2(x) (log(x) * M_LOG2E)          // Arduino doesn't have a log2 function :(
@@ -15,7 +15,7 @@ unsigned long currentMillis = 0, startMillis = 0, count = 0, conversions = 0;
 unsigned short steepSinTable[4096];
 short playbackData[PLAYBACK_BUFFER_SIZE], rawData[YIN_BUFFER_SIZE];
 bool clipping = false;
-volatile byte playbackSpeed = PLAYBACK_SPEED;      // repitching speed, PLAYBACK_SPEED 1:1 playback, higher is faster
+volatile long playbackSpeed = PLAYBACK_SPEED;      // repitching speed, PLAYBACK_SPEED 1:1 playback, higher is faster
 Yin yInMethod;
 static float frequency;
 static char* noteName = new char[4];
@@ -62,7 +62,7 @@ void loop() {
     Serial.print(frequency);
     #endif
     
-    if (frequency >= 20 && frequency < 1275) { // Was a pitch actually detected?
+    if (frequency >= 20 && frequency < 3600) { // Was a pitch actually detected?
       static float newFreq = frequency;
       newFreq = (newFreq + frequency) / 2.0f;
       frequency = newFreq;
@@ -71,12 +71,13 @@ void loop() {
       float targetFrequency = getNearestNoteFrequency(frequency);
 
       // Using this, we then adjust the playbackSpeed value
-      playbackSpeed = constrain(round(targetFrequency * PLAYBACK_SPEED / frequency), 1, PLAYBACK_SPEED-1); //was +ourSpeed
+      playbackSpeed = constrain(round(targetFrequency * PLAYBACK_SPEED / frequency), 1, (PLAYBACK_SPEED*8)-1); //was +ourSpeed
     }
     //#ifdef DEBUG
     Serial.print("    Playback speed: ");
-    Serial.print(playbackSpeed);
-    Serial.print("    Took ");
+    float pbs = 100.0*playbackSpeed/PLAYBACK_SPEED;
+    Serial.print(pbs);
+    Serial.print("%    Took ");
     Serial.print(millis() - t);
     Serial.print("ms");
     Serial.println("");
@@ -160,7 +161,7 @@ void adc_setup() {
 void ADC_Handler() {
   /* Beware : Stay in ADC_Handler as little time as possible */
   static unsigned short inputPosition = 0;  
-  static unsigned short outputPosition = 0;
+  static unsigned long outputPosition = 0;
   
   adc = ADC->ADC_CDR[7];                    // Reading ADC->ADC_CDR[i] clears EOCi bit
   //if (conversions < YIN_BUFFER_SIZE) {
@@ -170,15 +171,13 @@ void ADC_Handler() {
 
   adc = steepSinTable[adc];
   if (abs(adc-2048) < ADC_FILTER) adc = 2048;
-  if (abs(adc - 2048) == 2048) clipping = true;
+  if (abs(adc-2048) == 2048) clipping = true;
   playbackData[inputPosition] = adc;
-  inputPosition = (inputPosition+1) & PLAYBACK_BUFFER_SIZE-1; 
+  inputPosition = (inputPosition+1) & (PLAYBACK_BUFFER_SIZE-1); 
   outputPosition += playbackSpeed; //playbackSpeed 128 will be >> 7 so advances 1, ie 1:1 playback
-  //outputPosition = outputPosition & PLAYBACK_BUFFER_SIZE-1;
-  //outputPosition += 128;
 
   //Play from a different part
-  DACC->DACC_CDR = playbackData[outputPosition >> 7];
+  DACC->DACC_CDR = playbackData[outputPosition >> 17];
 
 }
 
