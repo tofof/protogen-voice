@@ -159,8 +159,8 @@ void adc_setup() {
 
 void ADC_Handler() {
   /* Beware : Stay in ADC_Handler as little time as possible */
-  static unsigned long inputPosition = 0;  
-  static unsigned long outputPosition = 0;
+  static unsigned short inputPosition = 0;  
+  static unsigned short outputPosition = 0;
   
   adc = ADC->ADC_CDR[7];                    // Reading ADC->ADC_CDR[i] clears EOCi bit
   //if (conversions < YIN_BUFFER_SIZE) {
