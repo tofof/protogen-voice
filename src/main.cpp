@@ -3,7 +3,7 @@
 
 #define DUE_CLOCK_RATE 84000000             // due processor speed, 84 MHz
 #define TIMER_FREQUENCY YIN_SAMPLING_RATE   // audio sampling (ADC conversion) speed; clock speed will be half this
-#define PLAYBACK_BUFFER_SIZE 32768          // must be power of 2
+#define PLAYBACK_BUFFER_SIZE 512          // must be power of 2
 #define PLAYBACK_SPEED 128                  // adjustment sensitivity, i.e. >100 for <=1% shifts
 #define ADC_FILTER 64                       // filter out deviations of less than this from a 0-4095 signal
 #define SIN_STEEP 3.0                       // steepness (1.0 to ~32.0) of sin function used to increase SNR, see https://www.desmos.com/calculator/wdtfsassev
@@ -15,7 +15,7 @@ unsigned long currentMillis = 0, startMillis = 0, count = 0, conversions = 0;
 unsigned short steepSinTable[4096];
 short playbackData[PLAYBACK_BUFFER_SIZE], rawData[YIN_BUFFER_SIZE];
 bool clipping = false;
-volatile short playbackSpeed = PLAYBACK_SPEED;      // repitching speed, PLAYBACK_SPEED 1:1 playback, higher is faster
+volatile byte playbackSpeed = PLAYBACK_SPEED;      // repitching speed, PLAYBACK_SPEED 1:1 playback, higher is faster
 Yin yInMethod;
 static float frequency;
 static char* noteName = new char[4];
@@ -174,7 +174,7 @@ void ADC_Handler() {
   playbackData[inputPosition] = adc;
   inputPosition = (inputPosition+1) & PLAYBACK_BUFFER_SIZE-1; 
   outputPosition += playbackSpeed; //playbackSpeed 128 will be >> 7 so advances 1, ie 1:1 playback
-  outputPosition = outputPosition & PLAYBACK_BUFFER_SIZE-1;
+  //outputPosition = outputPosition & PLAYBACK_BUFFER_SIZE-1;
   //outputPosition += 128;
 
   //Play from a different part
