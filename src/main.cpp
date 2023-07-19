@@ -64,8 +64,6 @@ void loop() {
 
       // Work out what note to tune to
       float targetFrequency = getNearestNoteFrequency(frequency);
-      Serial.print("Target: ");
-      Serial.print(targetFrequency);
 
       // Using this, we then adjust the playbackSpeed value
       playbackSpeed = constrain(round(targetFrequency * PLAYBACK_SPEED / frequency), 1, (PLAYBACK_SPEED*8)-1); //was +ourSpeed
