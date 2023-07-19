@@ -1,13 +1,16 @@
 #include <Arduino.h>
 #include <Yin.h>
 
+#define log2(x) (log(x) * M_LOG2E)          // Arduino doesn't have a log2 function :(
 #define DUE_CLOCK_RATE 84000000             // due processor speed, 84 MHz
 #define TIMER_FREQUENCY YIN_SAMPLING_RATE   // audio sampling (ADC conversion) speed; clock speed will be half this
 #define PLAYBACK_BUFFER_SIZE 32768          // must be power of 2
-#define PLAYBACK_SPEED 131072                  // adjustment sensitivity, i.e. >100 for <=1% shifts
+#define PLAYBACK_SPEED 131072               // must be maxlong (2^32) / PLAYBACK_BUFFER_SIZE, i.e. 2^17 for buffer size 2^15=32768
+#define PLAYBACK_SHIFT 17 // bits to shift output position by
 #define ADC_FILTER 64                       // filter out deviations of less than this from a 0-4095 signal
+#define YIN_ERROR 0.33                      // maximum allowed error to report a pitch instead of reporting -1
 #define SIN_STEEP 3.0                       // steepness (1.0 to ~32.0) of sin function used to increase SNR, see https://www.desmos.com/calculator/wdtfsassev
-#define log2(x) (log(x) * M_LOG2E)          // Arduino doesn't have a log2 function :(
+
 
 
 short adc = 0;
@@ -38,7 +41,7 @@ void setup() {
   tc_setup();
 
   // Prepare for frequency analysis
-  Yin_init(&yInMethod, 0.45);
+  Yin_init(&yInMethod, YIN_ERROR);
 
   Serial.println("Setup complete.");
   startMillis = millis();
@@ -164,21 +167,18 @@ void ADC_Handler() {
   static unsigned long outputPosition = 0;
   
   adc = ADC->ADC_CDR[7];                    // Reading ADC->ADC_CDR[i] clears EOCi bit
-  //if (conversions < YIN_BUFFER_SIZE) {
-    rawData[conversions] = adc-2048;
-    conversions++;
-  //}
+  rawData[conversions] = adc-2048;
+  conversions++;
 
   adc = steepSinTable[adc];
   if (abs(adc-2048) < ADC_FILTER) adc = 2048;
-  if (abs(adc-2048) == 2048) clipping = true;
+  //if (abs(adc-2048) == 2048) clipping = true;
   playbackData[inputPosition] = adc;
   inputPosition = (inputPosition+1) & (PLAYBACK_BUFFER_SIZE-1); 
-  outputPosition += playbackSpeed; //playbackSpeed 128 will be >> 7 so advances 1, ie 1:1 playback
+  outputPosition += playbackSpeed; //output position will be bit-shifted by default playback speed so it advances only 1 at normal speed
 
   //Play from a different part
-  DACC->DACC_CDR = playbackData[outputPosition >> 17];
-
+  DACC->DACC_CDR = playbackData[outputPosition >> PLAYBACK_SHIFT];
 }
 
 /*************  Configure dacc_setup function  *******************/
