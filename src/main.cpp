@@ -4,7 +4,7 @@
 #define log2(x) (log(x) * M_LOG2E)          // Arduino doesn't have a log2 function :(
 #define DUE_CLOCK_RATE 84000000             // due processor speed, 84 MHz
 #define TIMER_FREQUENCY YIN_SAMPLING_RATE   // audio sampling (ADC conversion) speed; clock speed will be half this
-#define PLAYBACK_BUFFER_SIZE 32768          // must be power of 2
+#define PLAYBACK_BUFFER_SIZE 32768           // must be power of 2; shorter limits possible latency, but longer crosses over itself less frequently (which produces a 'pop' sound) - 8192 gives about 10s between pops at a 98% playback speed
 #define PLAYBACK_SPEED 131072               // must be maxlong (2^32) / PLAYBACK_BUFFER_SIZE, i.e. 2^17 for buffer size 2^15=32768
 #define PLAYBACK_SHIFT (int)log2(PLAYBACK_SPEED) // bits to shift output position by
 #define ADC_FILTER 64                       // filter out deviations of less than this from a 0-4095 signal
@@ -160,8 +160,10 @@ void ADC_Handler() {
   static short adc = 0;
   
   adc = ADC->ADC_CDR[7];                    // Reading ADC->ADC_CDR[i] clears EOCi bit
-  rawData[conversions] = adc-2048;
-  conversions++;
+  if (conversions < YIN_BUFFER_SIZE) {
+    rawData[conversions] = adc-2048;
+    conversions++;
+  }
 
   adc = steepSinTable[adc];
   if (abs(adc-2048) < ADC_FILTER) adc = 2048;
