@@ -4,9 +4,15 @@
 #define log2(x) (log(x) * M_LOG2E)          // Arduino doesn't have a log2 function :(
 #define DUE_CLOCK_RATE 84000000             // due processor speed, 84 MHz
 #define TIMER_FREQUENCY YIN_SAMPLING_RATE   // audio sampling (ADC conversion) speed; clock speed will be half this
-#define PLAYBACK_BUFFER_SIZE 32768           // must be power of 2; shorter limits possible latency, but longer crosses over itself less frequently (which produces a 'pop' sound) - 8192 gives about 10s between pops at a 98% playback speed
-#define PLAYBACK_SPEED 131072               // must be maxlong (2^32) / PLAYBACK_BUFFER_SIZE, i.e. 2^17 for buffer size 2^15=32768
-#define PLAYBACK_SHIFT (int)log2(PLAYBACK_SPEED) // bits to shift output position by
+#define PLAYBACK_BUFFER_SIZE 32768          // must be power of 2; shorter limits possible latency, but longer crosses over itself less frequently (which produces a 'pop' sound)
+  // 8192 gives 10s between pops at 98.21% speed (448hz tone vs 440)
+  // 32768 gives 38s between pops at 98.21%
+#define PLAYBACK_SPEED (long) (pow(2,32)/PLAYBACK_BUFFER_SIZE)
+  // must be maxlong / PLAYBACK_BUFFER_SIZE, i.e. 2^17 for buffer size 2^15=32768
+#define PLAYBACK_SHIFT (int) log2(PLAYBACK_SPEED) 
+  // bits to shift output position by during playback to advance a single array cell
+#define PLAYBACK_FASTEST (unsigned long) (PLAYBACK_SPEED*pow(2,32-PLAYBACK_SHIFT)-1)
+  // maximum possible playback speed
 #define ADC_FILTER 64                       // filter out deviations of less than this from a 0-4095 signal
 #define YIN_ERROR 0.33                      // maximum allowed error to report a pitch instead of reporting -1
 #define SIN_STEEP 3.0                       // steepness (1.0 to ~32.0) of sin function used to increase SNR, see https://www.desmos.com/calculator/wdtfsassev
@@ -16,7 +22,7 @@
 Yin yInMethod;
 unsigned short steepSinTable[4096], conversions = 0;
 short playbackData[PLAYBACK_BUFFER_SIZE], rawData[YIN_BUFFER_SIZE];
-volatile long playbackSpeed = PLAYBACK_SPEED;      // repitching speed, PLAYBACK_SPEED 1:1 playback, higher is faster
+unsigned long playbackSpeed = PLAYBACK_SPEED;      // repitching speed, PLAYBACK_SPEED 1:1 playback, higher is faster
 //bool clipping = false;
 
 #define DEBUG 1
@@ -66,7 +72,7 @@ void loop() {
       float targetFrequency = getNearestNoteFrequency(frequency);
 
       // Using this, we then adjust the playbackSpeed value
-      playbackSpeed = constrain(round(targetFrequency * PLAYBACK_SPEED / frequency), 1, (PLAYBACK_SPEED*8)-1); //was +ourSpeed
+      playbackSpeed = constrain(round(targetFrequency * PLAYBACK_SPEED / frequency), 1, PLAYBACK_FASTEST); //was +ourSpeed
     }
     #ifdef DEBUG
     Serial.print("    Playback speed: ");
