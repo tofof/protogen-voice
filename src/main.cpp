@@ -6,10 +6,11 @@
 #define TIMER_FREQUENCY YIN_SAMPLING_RATE   // audio sampling (ADC conversion) speed; clock speed will be half this
 #define PLAYBACK_BUFFER_SIZE 32768          // must be power of 2
 #define PLAYBACK_SPEED 131072               // must be maxlong (2^32) / PLAYBACK_BUFFER_SIZE, i.e. 2^17 for buffer size 2^15=32768
-#define PLAYBACK_SHIFT 17 // bits to shift output position by
+#define PLAYBACK_SHIFT (int)log2(PLAYBACK_SPEED) // bits to shift output position by
 #define ADC_FILTER 64                       // filter out deviations of less than this from a 0-4095 signal
 #define YIN_ERROR 0.33                      // maximum allowed error to report a pitch instead of reporting -1
 #define SIN_STEEP 3.0                       // steepness (1.0 to ~32.0) of sin function used to increase SNR, see https://www.desmos.com/calculator/wdtfsassev
+#define c1 32.703f                          // Hz, lowest note we want to be able to detect
 
 
 Yin yInMethod;
@@ -49,20 +50,22 @@ void loop() {
     static unsigned int t;
     t = millis();
     #endif
-    frequency = Yin_getPitch(&yInMethod, rawData);
+    frequency = Yin_getPitch(&yInMethod, rawData); //at least 25 of 26ms is spent here
     conversions = 0;
     #ifdef DEBUG
     Serial.print("Frequency: ");
     Serial.print(frequency);
     #endif
     
-    if (frequency >= 20 && frequency < 3600) { // Was a pitch actually detected?
+    if (frequency >= c1 && frequency < 3600) { // Was a pitch actually detected?
       static float newFreq = frequency;
       newFreq = (newFreq + frequency) / 2.0f;
       frequency = newFreq;
 
       // Work out what note to tune to
       float targetFrequency = getNearestNoteFrequency(frequency);
+      Serial.print("Target: ");
+      Serial.print(targetFrequency);
 
       // Using this, we then adjust the playbackSpeed value
       playbackSpeed = constrain(round(targetFrequency * PLAYBACK_SPEED / frequency), 1, (PLAYBACK_SPEED*8)-1); //was +ourSpeed
@@ -91,18 +94,18 @@ float getNearestNoteFrequency(float frequency) {
   static char* noteName = new char[4];
 
   // Calculate the number of semitones from C2 (used as a reference point)
-  float nearestSemitoneFromC2f = 12.0 * log2(frequency / 65.41);
-  uint16_t nearestSemitoneFromC2 = round(nearestSemitoneFromC2f);
+  float nearestSemitoneFromC1f = 12.0 * log2(frequency / c1);
+  uint16_t nearestSemitoneFromC1 = round(nearestSemitoneFromC1f);
 
   // How I had the above line set when I was recording my Cher/Believe Karaoke Version
   // uint16_t nearestSemitoneFromC2 = round(nearestSemitoneFromC2f/2)*2;
 
   // Calculate the detected note 
   if (noteName) {
-    uint8_t noteNumber = nearestSemitoneFromC2 % 12;
+    uint8_t noteNumber = nearestSemitoneFromC1 % 12;
     strcpy(noteName, NoteNames[noteNumber]);
     // Add the Octave
-    uint8_t octave = 2 + (nearestSemitoneFromC2 / 12);
+    uint8_t octave = 1 + (nearestSemitoneFromC1 / 12);
     char tmp[4];
     itoa(octave, tmp, 10);
     strcat(noteName, tmp);
@@ -111,15 +114,15 @@ float getNearestNoteFrequency(float frequency) {
     Serial.print("    Nearest Note: ");
     Serial.print(noteName);
     Serial.print(" (");
-    Serial.print(pow(2, nearestSemitoneFromC2 / 12.0f) * 65.41f);
+    Serial.print(pow(2, nearestSemitoneFromC1 / 12.0f) * c1);
     Serial.print(" Hz)");
     #endif 
   }
 
   // noteDif gives us -0.5 to 0.5 of how in-tune we are.
-  float noteDiff = nearestSemitoneFromC2 - nearestSemitoneFromC2f;
+  float noteDiff = nearestSemitoneFromC1 - nearestSemitoneFromC1f;
 
-  return pow(2, nearestSemitoneFromC2 / 12.0f) * 65.41f;
+  return pow(2, nearestSemitoneFromC1 / 12.0f) * c1;
 }
 
 // steeper sin equation https://www.desmos.com/calculator/wdtfsassev
