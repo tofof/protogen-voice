@@ -12,16 +12,11 @@
 #define SIN_STEEP 3.0                       // steepness (1.0 to ~32.0) of sin function used to increase SNR, see https://www.desmos.com/calculator/wdtfsassev
 
 
-
-short adc = 0;
-unsigned long currentMillis = 0, startMillis = 0, count = 0, conversions = 0;
-unsigned short steepSinTable[4096];
-short playbackData[PLAYBACK_BUFFER_SIZE], rawData[YIN_BUFFER_SIZE];
-bool clipping = false;
-volatile long playbackSpeed = PLAYBACK_SPEED;      // repitching speed, PLAYBACK_SPEED 1:1 playback, higher is faster
 Yin yInMethod;
-static float frequency;
-static char* noteName = new char[4];
+unsigned short steepSinTable[4096], conversions = 0;
+short playbackData[PLAYBACK_BUFFER_SIZE], rawData[YIN_BUFFER_SIZE];
+volatile long playbackSpeed = PLAYBACK_SPEED;      // repitching speed, PLAYBACK_SPEED 1:1 playback, higher is faster
+//bool clipping = false;
 
 #define DEBUG 1
 
@@ -39,25 +34,21 @@ void setup() {
   adc_setup();
   dac_setup();
   tc_setup();
-
-  // Prepare for frequency analysis
   Yin_init(&yInMethod, YIN_ERROR);
-
+  #ifdef DEBUG
   Serial.println("Setup complete.");
-  startMillis = millis();
-  
+  #endif
   interrupts();
 }
 
 void loop() {
+  static float frequency;
   while(!(ADC->ADC_ISR & ADC_ISR_EOC7)); // lock clock speed to half timer frequency
-  count++;
-  currentMillis = millis();
   if (conversions >= YIN_BUFFER_SIZE) {
-    //#ifdef DEBUG
+    #ifdef DEBUG
     static unsigned int t;
     t = millis();
-    //#endif
+    #endif
     frequency = Yin_getPitch(&yInMethod, rawData);
     conversions = 0;
     #ifdef DEBUG
@@ -76,7 +67,7 @@ void loop() {
       // Using this, we then adjust the playbackSpeed value
       playbackSpeed = constrain(round(targetFrequency * PLAYBACK_SPEED / frequency), 1, (PLAYBACK_SPEED*8)-1); //was +ourSpeed
     }
-    //#ifdef DEBUG
+    #ifdef DEBUG
     Serial.print("    Playback speed: ");
     float pbs = 100.0*playbackSpeed/PLAYBACK_SPEED;
     Serial.print(pbs);
@@ -84,7 +75,7 @@ void loop() {
     Serial.print(millis() - t);
     Serial.print("ms");
     Serial.println("");
-    //#endif
+    #endif
   }
 
   // if (clipping) {
@@ -97,7 +88,7 @@ void loop() {
 float getNearestNoteFrequency(float frequency) {
   // Define the note names
   static const char* const NoteNames[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-
+  static char* noteName = new char[4];
 
   // Calculate the number of semitones from C2 (used as a reference point)
   float nearestSemitoneFromC2f = 12.0 * log2(frequency / 65.41);
@@ -165,6 +156,7 @@ void ADC_Handler() {
   /* Beware : Stay in ADC_Handler as little time as possible */
   static unsigned short inputPosition = 0;  
   static unsigned long outputPosition = 0;
+  static short adc = 0;
   
   adc = ADC->ADC_CDR[7];                    // Reading ADC->ADC_CDR[i] clears EOCi bit
   rawData[conversions] = adc-2048;
@@ -206,4 +198,3 @@ void tc_setup() {
   TC0->TC_CHANNEL[2].TC_RA = DUE_CLOCK_RATE/2 / TIMER_FREQUENCY / 2;  //Any Duty cycle in between 1 and TC_RC, 50% by default
   TC0->TC_CHANNEL[2].TC_CCR = TC_CCR_SWTRG | TC_CCR_CLKEN;// Software trigger TC2 counter and enable
 }
-
