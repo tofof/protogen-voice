@@ -7,8 +7,28 @@
 
 #include <stdint.h>
 #define YIN_SAMPLING_RATE 48000
-#define YIN_BUFFER_SIZE 2048                      // audio buffer size
-#define HALF_BUFFER_SIZE 1024
+
+// #define YIN_BUFFER_SIZE 4096                      // audio buffer size
+// #define HALF_BUFFER_SIZE 2048
+
+// #define YIN_BUFFER_SIZE 3072                      // audio buffer size
+// #define HALF_BUFFER_SIZE 1536
+
+// #define YIN_BUFFER_SIZE 2048                      // audio buffer size
+// #define HALF_BUFFER_SIZE 1024
+
+// #define YIN_BUFFER_SIZE 1536                      // audio buffer size
+// #define HALF_BUFFER_SIZE 768
+
+#define YIN_BUFFER_SIZE 1280                      // audio buffer size
+#define HALF_BUFFER_SIZE 640
+
+// #define YIN_BUFFER_SIZE 960                      // audio buffer size
+// #define HALF_BUFFER_SIZE 480
+
+// #define YIN_BUFFER_SIZE 640                      // audio buffer size
+// #define HALF_BUFFER_SIZE 320
+
 
 /**
  * @struct  Yin

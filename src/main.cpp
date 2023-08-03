@@ -4,7 +4,7 @@
 #define log2(x) (log(x) * M_LOG2E)          // Arduino doesn't have a log2 function :(
 #define DUE_CLOCK_RATE 84000000             // due processor speed, 84 MHz
 #define TIMER_FREQUENCY YIN_SAMPLING_RATE   // audio sampling (ADC conversion) speed; clock speed will be half this
-#define PLAYBACK_BUFFER_SIZE 32768          // must be power of 2; shorter limits possible latency, but longer crosses over itself less frequently (which produces a 'pop' sound)
+#define PLAYBACK_BUFFER_SIZE 4096          // must be power of 2; shorter limits possible latency, but longer crosses over itself less frequently (which produces a 'pop' sound)
   // 8192 gives 10s between pops at 98.21% speed (448hz tone vs 440)
   // 32768 gives 38s between pops at 98.21%
 #define PLAYBACK_SPEED (long) (pow(2,32)/PLAYBACK_BUFFER_SIZE)
@@ -15,7 +15,7 @@
   // maximum possible playback speed
 #define ADC_FILTER 64                       // filter out deviations of less than this from a 0-4095 signal
 #define YIN_ERROR 0.33                      // maximum allowed error to report a pitch instead of reporting -1
-#define SIN_STEEP 3.0                       // steepness (1.0 to ~32.0) of sin function used to increase SNR, see https://www.desmos.com/calculator/wdtfsassev
+#define SIN_STEEP 2.0                       // steepness (1.0 to ~32.0) of sin function used to increase SNR, see https://www.desmos.com/calculator/wdtfsassev
 #define c1 32.703f                          // Hz, lowest note we want to be able to detect
 
 
@@ -24,8 +24,19 @@ unsigned short steepSinTable[4096], conversions = 0;
 short playbackData[PLAYBACK_BUFFER_SIZE], rawData[YIN_BUFFER_SIZE];
 unsigned long playbackSpeed = PLAYBACK_SPEED;      // repitching speed, PLAYBACK_SPEED 1:1 playback, higher is faster
 //bool clipping = false;
+// Define the note names    0    1     2    3     4    5    6     7    8     9    10   11
+const char* NoteNames[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+// https://kagi.com/proxy/406c4d7753a67e92831ffdda0c432b53.jpg?c=5YigHpODNWx3qev9JrsT1PTQxfEZoqCu7AScTv9qhEVtkZGcr14jbzsSObe_h5RpyPZ_3SaH2D-plQ4JBBxXlE5SqoNz2y0_-pnDArkJWCSAj9V_-VEf8MSa9gXEda9B
+//const int Chord[] = {1, 4, 8, 9}; // A Major 7th
+const int Chord[] = {1, 2, 4, 6, 9}; // Dmaj9
+//const int Chord[] = {0, 2, 5, 8}; // Fm
+//const int Chord[] = {1, 3, 6, 10}; // Eb minor 7th
+//const int Chord[] = {2, 5, 9, 10}; // Bb major 7th
 
-#define DEBUG 1
+#define noteLength sizeof(Chord) / sizeof(Chord[0]) * 8 //size of chord * 8
+float noteTable[noteLength];
+
+//#define DEBUG 1
 
 void buildSteepSinTable();
 void adc_setup();
@@ -33,19 +44,22 @@ void dac_setup();
 void tc_setup();
 void ADC_Handler();
 float getNearestNoteFrequency(float frequency);
+void buildNoteTable();
+float binarySearchNotes(float f);
 
 void setup() {
-  noInterrupts();
   Serial.begin(115200);
   buildSteepSinTable();
+  buildNoteTable();
+  noInterrupts();
   adc_setup();
   dac_setup();
   tc_setup();
   Yin_init(&yInMethod, YIN_ERROR);
+  interrupts();
   #ifdef DEBUG
   Serial.println("Setup complete.");
   #endif
-  interrupts();
 }
 
 void loop() {
@@ -58,12 +72,12 @@ void loop() {
     #endif
     frequency = Yin_getPitch(&yInMethod, rawData); //at least 25 of 26ms is spent here
     conversions = 0;
-    #ifdef DEBUG
-    Serial.print("Frequency: ");
-    Serial.print(frequency);
-    #endif
     
     if (frequency >= c1 && frequency < 3600) { // Was a pitch actually detected?
+      #ifdef DEBUG
+      Serial.print("Frequency: ");
+      Serial.print(frequency);
+      #endif
       static float newFreq = frequency;
       newFreq = (newFreq + frequency) / 2.0f;
       frequency = newFreq;
@@ -73,16 +87,16 @@ void loop() {
 
       // Using this, we then adjust the playbackSpeed value
       playbackSpeed = constrain(round(targetFrequency * PLAYBACK_SPEED / frequency), 1, PLAYBACK_FASTEST); //was +ourSpeed
-    }
-    #ifdef DEBUG
-    Serial.print("    Playback speed: ");
-    float pbs = 100.0*playbackSpeed/PLAYBACK_SPEED;
-    Serial.print(pbs);
-    Serial.print("%    Took ");
-    Serial.print(millis() - t);
-    Serial.print("ms");
-    Serial.println("");
+      #ifdef DEBUG
+      Serial.print("    Playback speed: ");
+      float pbs = 100.0*playbackSpeed/PLAYBACK_SPEED;
+      Serial.print(pbs);
+      Serial.print("%    Took ");
+      Serial.print(millis() - t);
+      Serial.print("ms");
+      Serial.println("");
     #endif
+    }
   }
 
   // if (clipping) {
@@ -91,19 +105,48 @@ void loop() {
   //   }
 }
 
+void buildNoteTable() {
+  uint8_t csize = sizeof(Chord) / sizeof(Chord[0]);
+  uint8_t nearestSemitoneFromC1;
+
+  for (uint8_t i=0; i<noteLength; i++) {
+    nearestSemitoneFromC1 = Chord[i%csize] + 12*(i/csize);
+    noteTable[i] = pow(2, nearestSemitoneFromC1 / 12.0f) * c1;
+    //Serial.println(noteTable[i]);
+  }
+}
+
+float binarySearchNotes(float f) {
+    int first = 0;
+    int last = noteLength-1;
+    int mid = 0;
+    do
+    {
+        mid = first + (last - first) / 2;
+        if (f > noteTable[mid])
+            first = mid + 1;
+        else
+            last = mid - 1;
+        if (noteTable[mid] == f)
+            return mid;
+    } while (first <= last);
+
+    if ((f - noteTable[mid]) < (noteTable[mid+1] - f)) {
+      return noteTable[mid];
+    } else {
+      return noteTable[mid+1];
+    }
+}
+
 // noteName can be NULL or a char* with space for 3 characvters + null terminator
 float getNearestNoteFrequency(float frequency) {
-  // Define the note names
-  static const char* const NoteNames[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
   static char* noteName = new char[4];
 
-  // Calculate the number of semitones from C2 (used as a reference point)
-  float nearestSemitoneFromC1f = 12.0 * log2(frequency / c1);
+  // Calculate the number of semitones from C1 (used as a reference point)
+  //float nearestSemitoneFromC1f = 12.0 * log2(frequency / c1);
+  float nearestSemitoneFromC1f = 12.0 * log2(binarySearchNotes(frequency) / c1);
   uint16_t nearestSemitoneFromC1 = round(nearestSemitoneFromC1f);
-
-  // How I had the above line set when I was recording my Cher/Believe Karaoke Version
-  // uint16_t nearestSemitoneFromC2 = round(nearestSemitoneFromC2f/2)*2;
-
+  
   // Calculate the detected note 
   if (noteName) {
     uint8_t noteNumber = nearestSemitoneFromC1 % 12;
